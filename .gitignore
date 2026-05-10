@@ -1,0 +1,22 @@
+# 秘密情報 - 絶対にコミットしない
+.env
+service_account.json
+.streamlit/secrets.toml
+
+# ログ
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
