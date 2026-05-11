@@ -47,15 +47,13 @@ def _row_to_dict(row: list[Any], col_map: dict[str, int]) -> dict[str, Any]:
 
 
 def _is_postable(car: dict[str, Any]) -> bool:
-    """投稿対象の条件をチェックする"""
-    # ステータスが販売中
+    """
+    投稿対象の条件をチェックする。
+    投稿済みフラグは無視し、販売中の全車両を繰り返し投稿対象とする。
+    """
+    # ステータスが販売中（空欄の場合は販売中とみなす）
     status = str(car.get("status", "")).strip()
     if status and status not in config.ACTIVE_STATUSES:
-        return False
-
-    # 投稿済みでない
-    posted = str(car.get("posted", "")).strip()
-    if posted in config.POSTED_TRUE_VALUES:
         return False
 
     # 必須カラムが揃っている
@@ -65,6 +63,19 @@ def _is_postable(car: dict[str, Any]) -> bool:
             return False
 
     return True
+
+
+def _parse_last_posted(car: dict[str, Any]) -> datetime:
+    """最終投稿日時を datetime に変換する。未投稿は最古の日時を返す"""
+    raw = str(car.get("last_posted_at", "")).strip()
+    if not raw:
+        return datetime.min
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return datetime.min
 
 
 class SheetsClient:
@@ -113,8 +124,8 @@ class SheetsClient:
     def get_target_car(self) -> Optional[tuple[int, dict[str, Any]]]:
         """
         投稿対象の車両を1件選ぶ。
-        priority カラムがあれば数値が大きい（または小さい）ものを優先。
-        なければ行順（上から）で最初の1件。
+        選択ロジック：最終投稿日時が最も古い車両（＝最も長く投稿されていない車両）を優先。
+        これにより全車両がローテーションで繰り返し投稿される。
 
         戻り値: (行番号1-indexed, 車両辞書) or None
         """
@@ -129,24 +140,24 @@ class SheetsClient:
         if not candidates:
             return None
 
-        # priority カラムがある場合は数値変換して降順ソート
-        if "priority" in self._col_map:
-            def priority_key(item: tuple[int, dict]) -> float:
-                try:
-                    return float(item[1].get("priority", 0) or 0)
-                except (ValueError, TypeError):
-                    return 0.0
-
-            candidates.sort(key=priority_key, reverse=True)
+        # 最終投稿日時が最も古い車両を選ぶ（未投稿 = 最優先）
+        candidates.sort(key=lambda item: _parse_last_posted(item[1]))
 
         row_num, car = candidates[0]
-        logger.info("投稿対象車両: 行%d / %s %s", row_num, car.get("maker", ""), car.get("car_name", ""))
+        logger.info(
+            "投稿対象車両: 行%d / %s %s (最終投稿: %s)",
+            row_num,
+            car.get("maker", ""),
+            car.get("car_name", ""),
+            car.get("last_posted_at", "未投稿"),
+        )
         return row_num, car
 
     def update_posted(self, row_num: int, tweet_id: str) -> None:
         """
         投稿成功後にスプレッドシートへ結果を書き戻す。
-        投稿済み=TRUE / 最終投稿日時 / 投稿回数+1 / X投稿ID を更新する。
+        最終投稿日時 / 投稿回数+1 / X投稿ID を更新する。
+        ※ 投稿済みフラグは立てない（全車両を繰り返し投稿するため）
         """
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         updates: list[dict] = []
@@ -157,11 +168,9 @@ class SheetsClient:
                 cell = f"{col_letter}{row_num}"
                 updates.append({"range": cell, "values": [[value]]})
 
-        # 投稿済みフラグ
-        _cell("posted", "TRUE")
         # 最終投稿日時
         _cell("last_posted_at", now_str)
-        # X投稿ID
+        # X投稿ID（最新の投稿ID）
         _cell("x_post_id", tweet_id)
 
         # 投稿回数はインクリメント（現在値を読んで+1）
