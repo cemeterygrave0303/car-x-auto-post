@@ -80,15 +80,8 @@ class SheetsClient:
         if self._gc is not None:
             return
 
-        sa_json = config.GOOGLE_SERVICE_ACCOUNT_JSON
-        try:
-            # JSON文字列として渡された場合（GitHub Actions の環境変数展開）
-            sa_info = json.loads(sa_json)
-            creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
-        except (json.JSONDecodeError, ValueError):
-            # ファイルパスとして渡された場合
-            creds = Credentials.from_service_account_file(sa_json, scopes=SCOPES)
-
+        sa_info = config.get_service_account_info()
+        creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
         self._gc = gspread.authorize(creds)
         logger.info("Google Sheets API 接続成功")
 

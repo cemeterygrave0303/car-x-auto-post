@@ -5,6 +5,7 @@
 Streamlit Cloud: st.secrets（secrets.toml）
 の両方に対応する。
 """
+import json
 import os
 from dotenv import load_dotenv
 
@@ -28,6 +29,36 @@ def _get(key: str, default: str = "") -> str:
     except Exception:
         pass
     return default
+
+
+def get_service_account_info() -> dict:
+    """
+    サービスアカウント情報を辞書で返す。
+    優先順位:
+      1. Streamlit secrets の [gcp_service_account] セクション
+      2. 環境変数 GOOGLE_SERVICE_ACCOUNT_JSON の JSON 文字列
+      3. ファイルパスとして読み込み
+    """
+    # 1. Streamlit secrets のセクション形式（推奨）
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+            return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        pass
+
+    # 2. JSON 文字列（環境変数 or st.secrets の文字列キー）
+    sa_val = _get("GOOGLE_SERVICE_ACCOUNT_JSON", "service_account.json")
+    try:
+        info = json.loads(sa_val)
+        if isinstance(info, dict):
+            return info
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 3. ファイルパス
+    with open(sa_val, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # --- Google Sheets 設定 ---
