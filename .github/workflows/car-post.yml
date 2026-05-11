@@ -1,0 +1,72 @@
+name: 中古車 X 自動投稿
+
+on:
+  schedule:
+    # 毎日 8:30 JST = UTC 23:30 (前日)
+    - cron: "30 23 * * *"
+    # 毎日 20:30 JST = UTC 11:30
+    - cron: "30 11 * * *"
+  # 手動実行も可能
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "DRY RUN モード（true: 投稿しない）"
+        required: false
+        default: "false"
+
+jobs:
+  post:
+    name: X 自動投稿
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 依存パッケージのインストール
+        run: pip install -r requirements.txt
+
+      - name: service_account.json を生成
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: .env ファイルを生成（GitHub Secrets から）
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          cat > .env << EOF
+          GOOGLE_SERVICE_ACCOUNT_JSON=service_account.json
+          SPREADSHEET_ID=${SPREADSHEET_ID}
+          SHEET_NAME=${SHEET_NAME}
+          X_API_KEY=${X_API_KEY}
+          X_API_SECRET=${X_API_SECRET}
+          X_ACCESS_TOKEN=${X_ACCESS_TOKEN}
+          X_ACCESS_TOKEN_SECRET=${X_ACCESS_TOKEN_SECRET}
+          DRY_RUN=${DRY_RUN}
+          EOF
+
+      - name: 自動投稿を実行
+        run: python main.py
+
+      - name: ログをアーティファクトとして保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-log-${{ github.run_id }}
+          path: logs/
+          if-no-files-found: ignore
+          retention-days: 30

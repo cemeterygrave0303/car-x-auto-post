@@ -2,8 +2,11 @@
 投稿文生成モジュール
 車両情報を受け取り、280文字以内のX投稿文を生成する
 プラス要素・マイナス要素を自然に組み込む
+毎回異なるPRテキストをランダム生成する
 """
+import hashlib
 import re
+from datetime import datetime
 from typing import Any
 
 import config
@@ -20,6 +23,55 @@ HASHTAG_SETS = [
     "#中古車 #名古屋 #愛知 #車販売",               # 4個
     "#中古車 #名古屋 #愛知",                        # 3個
 ]
+
+# ヘッダーバリエーション（毎回変わる）
+HEADER_TEMPLATES = [
+    "【中古車 入庫情報】",
+    "【本日のおすすめ】",
+    "【在庫車 ご紹介】",
+    "【お買い得情報】",
+    "【今週の一台】",
+    "【新着入庫のご案内】",
+    "【厳選中古車】",
+]
+
+# CTAバリエーション（毎回変わる）
+CTA_TEMPLATES = [
+    "気になる方はDMください。",
+    "お気軽にDMどうぞ！",
+    "ご興味あればDMください✉️",
+    "詳細はDMにてお気軽に。",
+    "お問い合わせはDMから！",
+    "試乗もできます。DMください。",
+    "現車確認歓迎！まずはDMを。",
+]
+
+# オープニング文バリエーション
+OPENING_TEMPLATES = [
+    "",  # オープニングなし
+    "名古屋の中古車屋です🚗\n",
+    "愛知県でお探しの方へ🔍\n",
+    "コスパ重視の方におすすめ！\n",
+    "状態の良い一台が入りました✨\n",
+    "お値打ち価格でご提供します🎯\n",
+]
+
+
+def _get_variation_seed(car: dict[str, Any]) -> int:
+    """
+    車両IDと現在時刻の時間帯を組み合わせてシードを生成する。
+    同じ車両でも投稿のたびに異なるテキストになる。
+    """
+    car_id = str(car.get("id", car.get("car_name", "")))
+    # 時間単位でシードを変化させる（1時間ごとに変わる）
+    time_key = datetime.now().strftime("%Y%m%d%H")
+    seed_str = f"{car_id}_{time_key}"
+    return int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+
+
+def _pick(templates: list, seed: int, offset: int = 0) -> str:
+    """シードを使ってテンプレートリストから1つを選ぶ"""
+    return templates[(seed + offset) % len(templates)]
 
 
 def _format_price(raw: Any) -> str:
@@ -141,54 +193,68 @@ def _build_points_block(plus_raw: Any, minus_raw: Any, max_each: int) -> str:
 def generate_post(car: dict[str, Any]) -> str:
     """
     車両情報辞書から投稿文を生成する。
-    プラス要素・マイナス要素を自然に組み込む。
+    毎回異なるヘッダー・CTA・オープニングを使い、バリエーションのある投稿文を生成する。
     280文字を超える場合は各テキストを段階的に短縮する。
     最終的に280文字以内であることを保証する。
     """
-    maker     = str(car.get("maker", "")).strip()
-    car_name  = str(car.get("car_name", "")).strip()
-    year      = _format_year(car.get("year"))
-    mileage   = _format_mileage(car.get("mileage"))
-    price     = _format_price(car.get("price"))
+    maker      = str(car.get("maker", "")).strip()
+    car_name   = str(car.get("car_name", "")).strip()
+    year       = _format_year(car.get("year"))
+    mileage    = _format_mileage(car.get("mileage"))
+    price      = _format_price(car.get("price"))
     inspection = _format_inspection(car.get("inspection"))
-    repair    = _format_repair_history(car.get("repair_history"))
-    plus_raw  = str(car.get("plus_points", "") or car.get("appeal", "") or "").strip()
-    minus_raw = str(car.get("minus_points", "")).strip()
+    repair     = _format_repair_history(car.get("repair_history"))
+    plus_raw   = str(car.get("plus_points", "") or car.get("appeal", "") or "").strip()
+    minus_raw  = str(car.get("minus_points", "")).strip()
 
     car_title = f"{maker} {car_name}".strip() if maker else car_name
 
-    # 車両基本情報ブロック（固定）
-    base = (
-        f"【中古車 入庫情報】\n"
-        f"\n"
-        f"{car_title}\n"
-        f"年式：{year}\n"
-        f"走行距離：{mileage}\n"
-        f"車検：{inspection}\n"
-        f"修復歴：{repair}\n"
-        f"総額：{price}\n"
-    )
+    # バリエーション選択（車両・時刻ベースのシード）
+    seed    = _get_variation_seed(car)
+    header  = _pick(HEADER_TEMPLATES, seed, offset=0)
+    cta     = _pick(CTA_TEMPLATES, seed, offset=1)
+    opening = _pick(OPENING_TEMPLATES, seed, offset=2)
+
+    # 車両基本情報ブロック
+    def _make_base(include_inspection: bool = True, include_repair: bool = True) -> str:
+        lines = [f"{header}\n"]
+        if opening:
+            lines.append(opening)
+        lines.append(f"{car_title}\n")
+        lines.append(f"年式：{year}\n")
+        lines.append(f"走行距離：{mileage}\n")
+        if include_inspection:
+            lines.append(f"車検：{inspection}\n")
+        if include_repair:
+            lines.append(f"修復歴：{repair}\n")
+        lines.append(f"総額：{price}\n")
+        return "".join(lines)
 
     # プラス・マイナスの文字数を段階的に短縮して280字以内に収める
     for hashtags in HASHTAG_SETS:
-        for max_each in [40, 25, 15, 0]:
-            points_block = _build_points_block(plus_raw, minus_raw, max_each)
+        for inc_insp, inc_rep in [(True, True), (True, False), (False, False)]:
+            base = _make_base(inc_insp, inc_rep)
+            for max_each in [40, 25, 15, 0]:
+                points_block = _build_points_block(plus_raw, minus_raw, max_each)
 
-            if points_block:
-                body = base + f"\n{points_block}\n\n気になる方はDMください。\n\n{hashtags}"
-            else:
-                body = base + f"\n気になる方はDMください。\n\n{hashtags}"
+                if points_block:
+                    body = base + f"\n{points_block}\n\n{cta}\n\n{hashtags}"
+                else:
+                    body = base + f"\n{cta}\n\n{hashtags}"
 
-            if len(body) <= config.MAX_TWEET_LENGTH:
-                logger.debug("投稿文生成完了: %d文字", len(body))
-                return body
+                if len(body) <= config.MAX_TWEET_LENGTH:
+                    logger.debug(
+                        "投稿文生成完了: %d文字 header=%s cta=%s",
+                        len(body), header, cta
+                    )
+                    return body
 
     # フォールバック（通常到達しない）
     fallback = (
-        f"【中古車 入庫情報】\n"
+        f"{header}\n"
         f"{car_title} {year} {mileage}\n"
         f"総額：{price}\n"
-        f"DMください。\n"
+        f"{cta}\n"
         f"#中古車 #名古屋 #愛知"
     )
     return fallback[:config.MAX_TWEET_LENGTH]
