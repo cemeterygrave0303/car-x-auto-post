@@ -18,7 +18,7 @@ import config
 from sheets_client import SheetsClient, _col_index_to_letter, _build_column_map
 from post_generator import generate_post, validate_post
 from x_client import XClient
-from drive_client import upload_images_batch
+from image_client import upload_images_batch
 
 # ─────────────────────────────────────────────
 # ページ設定
