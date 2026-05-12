@@ -385,13 +385,34 @@ with tab3:
             year  = row.get(display_name("year"), "")
             return f"{maker} {name}（{year}年式）"
 
-        records = df.to_dict("records")
-        options = [car_label(r) for r in records]
+        records_all = df.to_dict("records")
+
+        # ── 空白行を除いてリストと「実際の行番号」を対応づける ──────────────
+        # スプレッドシート行番号 = データインデックス(0始まり) + 2（ヘッダー1行目分）
+        non_blank_records: list = []
+        non_blank_row_nums: list[int] = []
+        for raw_idx, r in enumerate(records_all):
+            maker_v = str(r.get(display_name("maker"), "") or "").strip()
+            name_v  = str(r.get(display_name("car_name"), "") or "").strip()
+            if maker_v or name_v:          # メーカーか車種名どちらかがあれば有効
+                non_blank_records.append(r)
+                non_blank_row_nums.append(raw_idx + 2)
+
+        if not non_blank_records:
+            st.warning("有効な車両データがありません。スプレッドシートを確認してください。")
+            st.stop()
+
+        options = [car_label(r) for r in non_blank_records]
         selected_idx = st.selectbox("編集する車両を選択", range(len(options)),
                                     format_func=lambda i: options[i])
 
-        selected_row = records[selected_idx]
-        row_num = selected_idx + 2  # ヘッダーが1行目なので+2
+        selected_row = non_blank_records[selected_idx]
+        row_num = non_blank_row_nums[selected_idx]   # 実際のスプレッドシート行番号
+
+        # 保存先の確認表示（保存ミス防止）
+        _s_maker = str(selected_row.get(display_name("maker"), "")).strip()
+        _s_name  = str(selected_row.get(display_name("car_name"), "")).strip()
+        st.info(f"💾 保存先：スプレッドシート **{row_num}行目** ／ {_s_maker} {_s_name}")
 
         st.divider()
 
@@ -431,6 +452,19 @@ with tab3:
         st.divider()
         st.subheader("📷 写真の変更")
         st.caption("新しい写真を選択するとGoogle Driveにアップロードして上書きします。選択しなければ現在の写真を維持します。")
+        with st.expander("ℹ️ 写真がマイドライブに見えない場合", expanded=False):
+            st.markdown(
+                """
+アップロードした写真は **システム用のサービスアカウント** のDriveスペースに保存されます。
+そのため、あなたの**マイドライブには表示されません**が、発行されたURLは誰でもアクセスできる**公開リンク**です。
+
+**自分のドライブに保存したい場合：**
+1. Googleドライブで新しいフォルダを作成する（例：「中古車写真」）
+2. そのフォルダを `cemeterygrave0303@car-x-auto-post.iam.gserviceaccount.com` と共有する（編集者権限）
+3. フォルダURLの `/folders/` 以降のIDをコピー
+4. StreamlitのSecretsに `DRIVE_FOLDER_ID = "（コピーしたID）"` を追加する
+                """
+            )
         current_urls = [
             selected_row.get(display_name("image_1"), ""),
             selected_row.get(display_name("image_2"), ""),
@@ -466,10 +500,11 @@ with tab3:
                     st.success(f"✅ 写真 {success_count} 枚を Drive にアップロードしました")
                     for i, url in enumerate(photo_urls):
                         if url:
-                            st.caption(f"写真{i+1}: {url}")
+                            st.caption(f"写真{i+1} URL: {url}")
                 else:
                     st.error("❌ Drive へのアップロードに失敗しました。管理者に連絡してください。")
                     st.write("取得URL一覧:", new_urls)
+                    st.stop()
 
             car_data = {
                 "status": status, "maker": maker, "car_name": car_name,
@@ -487,7 +522,11 @@ with tab3:
                 with st.spinner("保存中..."):
                     write_row_to_sheet(row_num, car_data)
                     reload_data()
-                st.success(f"✅ 行 {row_num} を保存しました（写真URL: {[u[:30]+'...' if u else '空' for u in photo_urls]}）")
+                photo_summary = [u[:40]+"..." if u else "（なし）" for u in photo_urls]
+                st.success(
+                    f"✅ **{maker} {car_name}**（行{row_num}）を保存しました\n\n"
+                    f"写真URL: {photo_summary}"
+                )
             except Exception as e:
                 st.error(f"保存エラー: {e}")
 
