@@ -200,5 +200,5 @@ def upload_images_batch(
         return urls
 
     except Exception as e:
-        logger.error("一括アップロード失敗: %s", type(e).__name__)
-        return [None] * len(files)
+        logger.error("一括アップロード失敗: %s / %s", type(e).__name__, str(e))
+        raise  # 呼び出し元でエラー詳細を表示できるよう再送出
