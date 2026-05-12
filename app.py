@@ -446,12 +446,30 @@ with tab3:
 
             if files_to_upload:
                 with st.spinner(f"📤 写真を Google Drive にアップロード中... ({len(files_to_upload)}枚)"):
-                    batch = [(uf.read(), uf.name, uf.type) for _, uf in files_to_upload]
-                    new_urls = upload_images_batch(batch)
+                    batch = []
+                    for _, uf in files_to_upload:
+                        uf.seek(0)  # バッファを先頭に戻す
+                        batch.append((uf.read(), uf.name, uf.type or "image/jpeg"))
+                    try:
+                        new_urls = upload_images_batch(batch)
+                    except Exception as e:
+                        st.error(f"❌ Drive アップロードエラー: {e}")
+                        new_urls = [None] * len(batch)
+
+                success_count = 0
                 for (slot_idx, _), new_url in zip(files_to_upload, new_urls):
                     if new_url:
                         photo_urls[slot_idx] = new_url
-                st.success(f"✅ 写真 {len(files_to_upload)} 枚をアップロードしました")
+                        success_count += 1
+
+                if success_count > 0:
+                    st.success(f"✅ 写真 {success_count} 枚を Drive にアップロードしました")
+                    for i, url in enumerate(photo_urls):
+                        if url:
+                            st.caption(f"写真{i+1}: {url}")
+                else:
+                    st.error("❌ Drive へのアップロードに失敗しました。管理者に連絡してください。")
+                    st.write("取得URL一覧:", new_urls)
 
             car_data = {
                 "status": status, "maker": maker, "car_name": car_name,
@@ -469,7 +487,7 @@ with tab3:
                 with st.spinner("保存中..."):
                     write_row_to_sheet(row_num, car_data)
                     reload_data()
-                st.success(f"✅ 行 {row_num} を保存しました")
+                st.success(f"✅ 行 {row_num} を保存しました（写真URL: {[u[:30]+'...' if u else '空' for u in photo_urls]}）")
             except Exception as e:
                 st.error(f"保存エラー: {e}")
 
