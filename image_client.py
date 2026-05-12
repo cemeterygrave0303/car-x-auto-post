@@ -9,23 +9,15 @@ from typing import Optional
 
 import requests
 
+import config
 from logger import get_logger
 
 logger = get_logger(__name__)
 
 
 def _get_api_key() -> str:
-    """imgbb APIキーを環境変数またはStreamlit Secretsから取得する"""
-    # Streamlit Secrets から取得を試みる
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets") and "IMGBB_API_KEY" in st.secrets:
-            return str(st.secrets["IMGBB_API_KEY"])
-    except Exception:
-        pass
-    # 環境変数から取得
-    key = os.getenv("IMGBB_API_KEY", "")
-    return key
+    """imgbb APIキーを取得する（config._get 経由で確実に読み込む）"""
+    return config._get("IMGBB_API_KEY", "")
 
 
 def upload_image(
@@ -48,13 +40,13 @@ def upload_image(
     """
     api_key = _get_api_key()
     if not api_key:
-        logger.error("IMGBB_API_KEY が設定されていません。Streamlit Secrets に追加してください。")
+        logger.error("IMGBB_API_KEY が設定されていません。")
         raise ValueError(
-            "IMGBB_API_KEY が未設定です。\n"
-            "1. imgbb.com で無料登録\n"
-            "2. api.imgbb.com でAPIキーを取得\n"
-            "3. Streamlit Secrets に IMGBB_API_KEY = \"キー\" を追加"
+            "IMGBB_API_KEY が Streamlit Secrets に見つかりません。\n"
+            "Secrets に以下の行が正しく追加されているか確認してください：\n"
+            'IMGBB_API_KEY = "your_api_key_here"'
         )
+    logger.debug("IMGBB_API_KEY 読み込み成功（先頭4文字: %s）", api_key[:4])
 
     try:
         b64 = base64.b64encode(file_bytes).decode("utf-8")
