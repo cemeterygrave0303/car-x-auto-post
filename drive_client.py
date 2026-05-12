@@ -4,7 +4,6 @@ Google Drive アップロードモジュール
 サービスアカウントを使用するため、ユーザーのGoogleログイン不要。
 """
 import io
-import json
 import os
 from typing import Optional
 
@@ -37,13 +36,8 @@ MIME_TYPES = {
 
 def _build_drive_service():
     """Drive API サービスを構築して返す"""
-    sa_json = config.GOOGLE_SERVICE_ACCOUNT_JSON
-    try:
-        sa_info = json.loads(sa_json)
-        creds = Credentials.from_service_account_info(sa_info, scopes=DRIVE_SCOPES)
-    except (json.JSONDecodeError, ValueError):
-        creds = Credentials.from_service_account_file(sa_json, scopes=DRIVE_SCOPES)
-
+    sa_info = config.get_service_account_info()
+    creds = Credentials.from_service_account_info(sa_info, scopes=DRIVE_SCOPES)
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
