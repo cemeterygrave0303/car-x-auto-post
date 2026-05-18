@@ -229,7 +229,7 @@ if st.session_state.df is None:
 # ─────────────────────────────────────────────
 # メインタブ
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["📋 在庫一覧", "➕ 車両登録", "✏️ 車両編集", "🚀 投稿プレビュー"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 在庫一覧", "➕ 車両登録", "✏️ 車両編集", "📢 PR・告知投稿", "🚀 投稿プレビュー"])
 
 
 # ══════════════════════════════════════════════
@@ -292,11 +292,12 @@ with tab2:
     with st.form("register_form"):
         c1, c2 = st.columns(2)
         with c1:
-            status   = st.selectbox("ステイタス *", ["販売中", "商談中", "売約済み", "在庫切れ"])
-            maker    = st.text_input("メーカー *", placeholder="例: ダイハツ")
-            car_name = st.text_input("車種名 *", placeholder="例: タント")
-            grade    = st.text_input("グレード", placeholder="例: X SA3")
-            year     = st.text_input("年式 *", placeholder="例: 2020")
+            status          = st.selectbox("ステイタス *", ["販売中", "商談中", "売約済み", "在庫切れ"])
+            maker           = st.text_input("メーカー *", placeholder="例: ダイハツ")
+            car_name        = st.text_input("車種名 *", placeholder="例: タント")
+            grade           = st.text_input("グレード", placeholder="例: X SA3")
+            year            = st.text_input("年式 *", placeholder="例: 2020")
+            chassis_number  = st.text_input("車体番号", placeholder="例: NHP10-1234567")
         with c2:
             mileage    = st.text_input("走行距離 *", placeholder="例: 30000")
             price      = st.text_input("価格 *", placeholder="例: 580000")
@@ -350,6 +351,7 @@ with tab2:
                 "status": status, "maker": maker, "car_name": car_name,
                 "year": year, "mileage": mileage, "price": price,
                 "inspection": inspection, "repair_history": repair,
+                "chassis_number": chassis_number,
                 "plus_points": plus_points, "minus_points": minus_points,
                 "image_1": photo_urls[0], "image_2": photo_urls[1],
                 "image_3": photo_urls[2], "image_4": photo_urls[3],
@@ -402,6 +404,20 @@ with tab3:
             st.warning("有効な車両データがありません。スプレッドシートを確認してください。")
             st.stop()
 
+        # ── 検索フィルター ──────────────────────────────────────────────
+        search_query = st.text_input("🔍 車両を検索", placeholder="メーカー名・車種名で絞り込み（例：トヨタ、シエンタ）")
+        if search_query.strip():
+            q = search_query.strip().lower()
+            filtered_pairs = [
+                (r, n) for r, n in zip(non_blank_records, non_blank_row_nums)
+                if q in car_label(r).lower()
+            ]
+            if filtered_pairs:
+                non_blank_records  = [r for r, n in filtered_pairs]
+                non_blank_row_nums = [n for r, n in filtered_pairs]
+            else:
+                st.warning(f"「{search_query}」に一致する車両が見つかりません")
+
         options = [car_label(r) for r in non_blank_records]
         selected_idx = st.selectbox("編集する車両を選択", range(len(options)),
                                     format_func=lambda i: options[i])
@@ -423,9 +439,10 @@ with tab3:
                                         index=["販売中","商談中","売約済み","在庫切れ"].index(
                                             selected_row.get(display_name("status"), "販売中")
                                         ) if selected_row.get(display_name("status"), "販売中") in ["販売中","商談中","売約済み","在庫切れ"] else 0)
-                maker    = st.text_input("メーカー", value=selected_row.get(display_name("maker"), ""))
-                car_name = st.text_input("車種名",   value=selected_row.get(display_name("car_name"), ""))
-                year     = st.text_input("年式",     value=selected_row.get(display_name("year"), ""))
+                maker           = st.text_input("メーカー",   value=selected_row.get(display_name("maker"), ""))
+                car_name        = st.text_input("車種名",     value=selected_row.get(display_name("car_name"), ""))
+                year            = st.text_input("年式",       value=selected_row.get(display_name("year"), ""))
+                chassis_number  = st.text_input("車体番号",   value=selected_row.get(display_name("chassis_number"), ""))
             with c2:
                 mileage    = st.text_input("走行距離", value=selected_row.get(display_name("mileage"), ""))
                 price      = st.text_input("価格",     value=selected_row.get(display_name("price"), ""))
@@ -510,6 +527,7 @@ with tab3:
                 "status": status, "maker": maker, "car_name": car_name,
                 "year": year, "mileage": mileage, "price": price,
                 "inspection": inspection, "repair_history": repair,
+                "chassis_number": chassis_number,
                 "plus_points": plus_points, "minus_points": minus_points,
                 "image_1": photo_urls[0], "image_2": photo_urls[1],
                 "image_3": photo_urls[2], "image_4": photo_urls[3],
@@ -532,9 +550,130 @@ with tab3:
 
 
 # ══════════════════════════════════════════════
-# タブ4: 投稿プレビュー & 手動投稿
+# タブ4: PR・告知投稿
 # ══════════════════════════════════════════════
 with tab4:
+    st.header("PR・告知投稿")
+    st.caption("車両紹介以外のPR・お知らせ・キャンペーン告知などを作成してXに投稿できます")
+
+    # ── テンプレート ───────────────────────────────────────
+    PR_TEMPLATES = {
+        "自由入力": "",
+        "新着入庫のお知らせ": (
+            "【新着入庫🚗】\n\n"
+            "新しい車が入庫しました！\n"
+            "詳細はプロフィールのリンクをご覧ください。\n\n"
+            "気になる方はDMください✉️\n\n"
+            "#中古車 #名古屋 #愛知 #車売ります #中古車販売"
+        ),
+        "キャンペーン告知": (
+            "【キャンペーン開催中🎉】\n\n"
+            "（キャンペーン内容をここに入力）\n\n"
+            "詳細はDMにてお問い合わせください！\n\n"
+            "#中古車 #名古屋 #愛知 #車売ります"
+        ),
+        "営業時間・お知らせ": (
+            "【営業時間のご案内🕙】\n\n"
+            "月〜土：10:00〜19:00\n"
+            "日・祝：10:00〜18:00\n\n"
+            "お気軽にご来店・DMください😊\n\n"
+            "#中古車販売 #名古屋 #愛知"
+        ),
+        "在庫一掃・特価のご案内": (
+            "【特価車両のご案内💥】\n\n"
+            "在庫処分のため、お値打ち価格でご提供中！\n"
+            "詳細はDMまたはお電話でお気軽に。\n\n"
+            "#中古車 #名古屋 #愛知 #車売ります #お得"
+        ),
+        "口コミ・お礼": (
+            "【ご成約ありがとうございます🙏】\n\n"
+            "この度はご購入いただきありがとうございました！\n"
+            "またのご利用をお待ちしております。\n\n"
+            "#中古車 #名古屋 #愛知 #中古車販売"
+        ),
+    }
+
+    template_key = st.selectbox(
+        "テンプレートを選択",
+        list(PR_TEMPLATES.keys()),
+        help="テンプレートを選ぶと投稿文の雛形が入力されます。自由に編集できます。"
+    )
+
+    pr_text = st.text_area(
+        "投稿文",
+        value=PR_TEMPLATES[template_key],
+        height=250,
+        placeholder="投稿文を入力してください（280文字以内）",
+        key="pr_text_area",
+    )
+
+    # 文字数カウント
+    pr_len = len(pr_text)
+    pr_color = "green" if pr_len <= config.MAX_TWEET_LENGTH else "red"
+    st.markdown(
+        f"文字数: <span style='color:{pr_color}; font-weight:bold'>"
+        f"{pr_len} / 280</span>",
+        unsafe_allow_html=True,
+    )
+
+    if pr_len > config.MAX_TWEET_LENGTH:
+        st.error("投稿文が280文字を超えています。短くしてください。")
+
+    st.divider()
+
+    # ── 画像添付（任意）──────────────────────────────────
+    st.subheader("📷 画像添付（任意・最大4枚）")
+    pr_uploaded, _ = render_photo_uploader("pr")
+
+    st.divider()
+
+    # ── 投稿ボタン ────────────────────────────────────────
+    pr_btn_label = "📝 DRY RUN（プレビューのみ）" if dry_run else "🚀 Xに投稿する"
+    pr_btn_type  = "secondary" if dry_run else "primary"
+
+    if not dry_run:
+        st.warning("⚠️ 実際にXへ投稿されます。サイドバーの DRY RUN を ON にすると確認のみになります。")
+
+    if st.button(pr_btn_label, use_container_width=True, type=pr_btn_type, key="pr_post_btn"):
+        if not pr_text.strip():
+            st.error("投稿文を入力してください。")
+        elif pr_len > config.MAX_TWEET_LENGTH:
+            st.error("投稿文が280文字を超えています。")
+        elif dry_run:
+            st.success("【DRY RUN】投稿文の確認が完了しました。")
+            st.text_area("確認用プレビュー", value=pr_text, height=200, disabled=True)
+        else:
+            # 画像アップロード（選択されていれば）
+            pr_image_urls: list[str] = []
+            pr_files = [f for f in pr_uploaded if f is not None]
+            if pr_files:
+                with st.spinner(f"📤 画像を アップロード中... ({len(pr_files)}枚)"):
+                    try:
+                        uploaded_urls = upload_images_batch(
+                            [(f.read(), f.name, f.type or "image/jpeg") for f in pr_files]
+                        )
+                        pr_image_urls = [u for u in uploaded_urls if u]
+                    except Exception as e:
+                        st.error(f"画像アップロードエラー: {e}")
+
+            with st.spinner("Xに投稿中..."):
+                x = XClient()
+                tweet_id = x.post_tweet(
+                    pr_text,
+                    image_urls=pr_image_urls if pr_image_urls else None,
+                )
+
+            if tweet_id:
+                st.success(f"✅ 投稿成功！ Tweet ID: {tweet_id}")
+                st.balloons()
+            else:
+                st.error("❌ 投稿に失敗しました。ログを確認してください。")
+
+
+# ══════════════════════════════════════════════
+# タブ5: 投稿プレビュー & 手動投稿
+# ══════════════════════════════════════════════
+with tab5:
     st.header("投稿プレビュー & 手動投稿")
 
     df = st.session_state.df

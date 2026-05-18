@@ -98,6 +98,7 @@ COLUMN_ALIASES = {
     "appeal": ["アピールポイント", "appeal", "Appeal", "コメント", "備考", "特記事項"],
     "plus_points": ["プラス要素", "plus_points", "プラス", "良い点", "メリット", "アピール"],
     "minus_points": ["マイナス要素", "minus_points", "マイナス", "気になる点", "デメリット", "瑕疵"],
+    "chassis_number": ["車体番号", "chassis_number", "ChassisNumber", "車台番号", "フレーム番号", "車台No"],
     "image_url": ["画像URL", "image_url", "ImageURL", "画像", "image"],
     "image_1": ["写真１", "写真1", "photo1", "image1", "画像1", "画像１", "写真（1）"],
     "image_2": ["写真２", "写真2", "photo2", "image2", "画像2", "画像２", "写真（2）"],
