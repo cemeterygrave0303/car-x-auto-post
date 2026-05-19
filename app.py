@@ -140,38 +140,52 @@ def upload_photos_to_drive(uploaded_files: list) -> list[str]:
     return result
 
 
-def render_photo_uploader(label_prefix: str, current_urls: Optional[list[str]] = None) -> tuple[list, list[str]]:
+def render_photo_uploader(
+    label_prefix: str,
+    current_urls: Optional[list[str]] = None,
+    num_photos: int = 10,
+) -> tuple[list, list[str]]:
     """
-    写真1〜4のアップロードUIを描画する。
+    写真アップロードUIを描画する（最大10枚・クリックで拡大表示付き）。
     戻り値: (uploaded_files_list, current_url_list)
-    - uploaded_files_list: st.file_uploader の結果（None or UploadedFile）
-    - current_url_list: 現在のURL（編集時の既存URL）
     """
     if current_urls is None:
-        current_urls = ["", "", "", ""]
+        current_urls = [""] * num_photos
+
+    # URLリストを num_photos 長に正規化
+    current_urls = list(current_urls) + [""] * num_photos
+    current_urls = current_urls[:num_photos]
 
     uploaded = []
     col1, col2 = st.columns(2)
-    cols = [col1, col2, col1, col2]
+    cols = [col1, col2] * (num_photos // 2 + 1)
 
-    for i in range(4):
+    for i in range(num_photos):
         with cols[i]:
-            existing_url = current_urls[i] if i < len(current_urls) else ""
+            existing_url = current_urls[i]
 
-            # 既存URLがある場合はプレビュー表示
+            # 既存URLがある場合：クリックで拡大できるサムネイル表示
             if existing_url:
-                st.caption(f"📎 写真{i+1} 現在の画像")
-                st.code(existing_url[:60] + "...", language=None)
+                st.markdown(
+                    f'<a href="{existing_url}" target="_blank" title="クリックで拡大表示">'
+                    f'<img src="{existing_url}" '
+                    f'style="width:100%;border-radius:8px;cursor:zoom-in;'
+                    f'border:2px solid #e0e0e0;margin-bottom:4px;" />'
+                    f'</a>'
+                    f'<div style="font-size:11px;color:#888;margin-bottom:6px;">'
+                    f'🔍 写真{i+1}（クリックで拡大）</div>',
+                    unsafe_allow_html=True,
+                )
 
             uf = st.file_uploader(
-                f"写真{i+1}{'（変更する場合）' if existing_url else ''}",
+                f"写真{i+1}{'　変更する場合は選択' if existing_url else ''}",
                 type=["jpg", "jpeg", "png", "gif", "webp"],
                 key=f"{label_prefix}_photo_{i+1}",
             )
 
-            # プレビュー表示
+            # 新しくアップロードされた場合のプレビュー
             if uf is not None:
-                st.image(uf, caption=f"写真{i+1} プレビュー", use_container_width=True)
+                st.image(uf, caption=f"写真{i+1} 新しい画像", use_container_width=True)
 
             uploaded.append(uf)
 
@@ -331,29 +345,35 @@ with tab2:
         with c4:
             minus_points = st.text_area("マイナス要素", placeholder="例: フロントガラスに飛び石痕あり", height=80)
 
+        equipment = st.text_area(
+            "装備",
+            placeholder="例: ナビ、バックカメラ、ETC、オートエアコン、電動スライドドア、アイドリングストップ",
+            height=80,
+        )
+
         st.divider()
-        st.subheader("📷 写真（最大4枚）")
-        st.caption("JPG / PNG / GIF / WEBP に対応。Google Drive に自動アップロードされます。")
+        st.subheader("📷 写真（最大10枚）")
+        st.caption("JPG / PNG / GIF / WEBP に対応。imgbb に自動アップロードされます。")
 
         submitted = st.form_submit_button("✅ 登録する", use_container_width=True, type="primary")
 
     # フォーム外で file_uploader を配置（Streamlit の制約のため）
-    st.subheader("📷 写真アップロード")
-    st.caption("登録ボタンを押す前に写真を選択してください（任意・最大4枚）")
-    reg_uploaded, _ = render_photo_uploader("reg")
+    st.subheader("📷 写真アップロード（最大10枚）")
+    st.caption("登録ボタンを押す前に写真を選択してください（任意）")
+    reg_uploaded, _ = render_photo_uploader("reg", num_photos=10)
 
     if submitted:
         if not maker or not car_name or not year or not mileage or not price:
             st.error("* の項目は必須です")
         else:
-            photo_urls = ["", "", "", ""]
+            photo_urls = [""] * 10
 
-            # Drive アップロード
+            # imgbb アップロード
             files_to_upload = [f for f in reg_uploaded if f is not None]
             if files_to_upload:
-                with st.spinner(f"📤 写真を Google Drive にアップロード中... ({len(files_to_upload)}枚)"):
+                with st.spinner(f"📤 写真をアップロード中... ({len(files_to_upload)}枚)"):
                     uploaded_urls = upload_images_batch(
-                        [(uf.read(), uf.name, uf.type) for uf in files_to_upload]
+                        [(uf.read(), uf.name, uf.type or "image/jpeg") for uf in files_to_upload]
                     )
                 idx = 0
                 for i, uf in enumerate(reg_uploaded):
@@ -363,7 +383,7 @@ with tab2:
 
                 success_count = sum(1 for u in photo_urls if u)
                 if success_count:
-                    st.success(f"✅ 写真 {success_count} 枚を Drive にアップロードしました")
+                    st.success(f"✅ 写真 {success_count} 枚をアップロードしました")
                 else:
                     st.warning("写真のアップロードに失敗しました。URLは空で登録されます。")
 
@@ -371,10 +391,9 @@ with tab2:
                 "status": status, "maker": maker, "car_name": car_name,
                 "year": year, "mileage": mileage, "price": price,
                 "inspection": inspection, "repair_history": repair,
-                "chassis_number": chassis_number,
+                "chassis_number": chassis_number, "equipment": equipment,
                 "plus_points": plus_points, "minus_points": minus_points,
-                "image_1": photo_urls[0], "image_2": photo_urls[1],
-                "image_3": photo_urls[2], "image_4": photo_urls[3],
+                **{f"image_{i+1}": photo_urls[i] for i in range(10)},
                 "posted": "", "post_count": "0",
             }
 
@@ -480,52 +499,44 @@ with tab3:
                 minus_points = st.text_area("マイナス要素",
                     value=selected_row.get(display_name("minus_points"), ""), height=80)
 
+            equipment = st.text_area(
+                "装備",
+                value=selected_row.get(display_name("equipment"), ""),
+                placeholder="例: ナビ、バックカメラ、ETC、オートエアコン、電動スライドドア",
+                height=80,
+            )
+
             # 投稿済みリセット
             reset_posted = st.checkbox("投稿済みフラグをリセットする（再投稿したい場合）", value=False)
 
             save_btn = st.form_submit_button("💾 保存する", use_container_width=True, type="primary")
 
-        # 写真アップロード（フォーム外）
+        # 写真アップロード（フォーム外・10枚対応）
         st.divider()
-        st.subheader("📷 写真の変更")
-        st.caption("新しい写真を選択するとGoogle Driveにアップロードして上書きします。選択しなければ現在の写真を維持します。")
-        with st.expander("ℹ️ 写真がマイドライブに見えない場合", expanded=False):
-            st.markdown(
-                """
-アップロードした写真は **システム用のサービスアカウント** のDriveスペースに保存されます。
-そのため、あなたの**マイドライブには表示されません**が、発行されたURLは誰でもアクセスできる**公開リンク**です。
-
-**自分のドライブに保存したい場合：**
-1. Googleドライブで新しいフォルダを作成する（例：「中古車写真」）
-2. そのフォルダを `cemeterygrave0303@car-x-auto-post.iam.gserviceaccount.com` と共有する（編集者権限）
-3. フォルダURLの `/folders/` 以降のIDをコピー
-4. StreamlitのSecretsに `DRIVE_FOLDER_ID = "（コピーしたID）"` を追加する
-                """
-            )
+        st.subheader("📷 写真の変更（最大10枚・クリックで拡大）")
+        st.caption("新しい写真を選択するとアップロードして上書きします。選択しなければ現在の写真を維持します。")
         current_urls = [
-            selected_row.get(display_name("image_1"), ""),
-            selected_row.get(display_name("image_2"), ""),
-            selected_row.get(display_name("image_3"), ""),
-            selected_row.get(display_name("image_4"), ""),
+            selected_row.get(display_name(f"image_{i}"), "") for i in range(1, 11)
         ]
-        edit_uploaded, existing_urls = render_photo_uploader("edit", current_urls)
+        edit_uploaded, existing_urls = render_photo_uploader("edit", current_urls, num_photos=10)
 
         if save_btn:
-            # 写真処理：新しくアップロードされたものだけDriveへ
-            photo_urls = list(existing_urls[:4]) + [""] * (4 - len(existing_urls))
+            # 写真処理：新しくアップロードされたものだけimgbbへ
+            photo_urls = list(existing_urls[:10]) + [""] * (10 - len(existing_urls))
             files_to_upload = [(i, uf) for i, uf in enumerate(edit_uploaded) if uf is not None]
 
             if files_to_upload:
-                with st.spinner(f"📤 写真を Google Drive にアップロード中... ({len(files_to_upload)}枚)"):
+                with st.spinner(f"📤 写真をアップロード中... ({len(files_to_upload)}枚)"):
                     batch = []
                     for _, uf in files_to_upload:
-                        uf.seek(0)  # バッファを先頭に戻す
+                        uf.seek(0)
                         batch.append((uf.read(), uf.name, uf.type or "image/jpeg"))
                     try:
                         new_urls = upload_images_batch(batch)
                     except Exception as e:
-                        st.error(f"❌ Drive アップロードエラー: {e}")
+                        st.error(f"❌ アップロードエラー: {e}")
                         new_urls = [None] * len(batch)
+                        st.stop()
 
                 success_count = 0
                 for (slot_idx, _), new_url in zip(files_to_upload, new_urls):
@@ -534,23 +545,18 @@ with tab3:
                         success_count += 1
 
                 if success_count > 0:
-                    st.success(f"✅ 写真 {success_count} 枚を Drive にアップロードしました")
-                    for i, url in enumerate(photo_urls):
-                        if url:
-                            st.caption(f"写真{i+1} URL: {url}")
+                    st.success(f"✅ 写真 {success_count} 枚をアップロードしました")
                 else:
-                    st.error("❌ Drive へのアップロードに失敗しました。管理者に連絡してください。")
-                    st.write("取得URL一覧:", new_urls)
+                    st.error("❌ アップロードに失敗しました。")
                     st.stop()
 
             car_data = {
                 "status": status, "maker": maker, "car_name": car_name,
                 "year": year, "mileage": mileage, "price": price,
                 "inspection": inspection, "repair_history": repair,
-                "chassis_number": chassis_number,
+                "chassis_number": chassis_number, "equipment": equipment,
                 "plus_points": plus_points, "minus_points": minus_points,
-                "image_1": photo_urls[0], "image_2": photo_urls[1],
-                "image_3": photo_urls[2], "image_4": photo_urls[3],
+                **{f"image_{i+1}": photo_urls[i] for i in range(10)},
             }
             if reset_posted:
                 car_data["posted"] = ""
@@ -831,12 +837,27 @@ with tab5:
 
         with col_info:
             st.subheader("画像")
-            image_urls = [str(car.get(f"image_{i}", "")).strip() for i in range(1, 5)]
-            image_urls = [u for u in image_urls if u]
-            if image_urls:
-                for i, url in enumerate(image_urls, 1):
-                    st.caption(f"写真{i}: {url[:50]}...")
-                st.info(f"添付画像: {len(image_urls)} 枚")
+            all_image_urls = [str(car.get(f"image_{i}", "")).strip() for i in range(1, 11)]
+            all_image_urls = [u for u in all_image_urls if u]
+            # X投稿に使う画像（先頭4枚まで）
+            image_urls = all_image_urls[:4]
+
+            if all_image_urls:
+                # サムネイルグリッド表示（クリックで拡大）
+                thumb_cols = st.columns(2)
+                for idx, url in enumerate(all_image_urls):
+                    with thumb_cols[idx % 2]:
+                        st.markdown(
+                            f'<a href="{url}" target="_blank" title="クリックで拡大">'
+                            f'<img src="{url}" style="width:100%;border-radius:6px;'
+                            f'cursor:zoom-in;margin-bottom:4px;'
+                            f'{"border:2px solid #4CAF50;" if idx < 4 else "opacity:0.7;"}" />'
+                            f'</a>'
+                            f'<div style="font-size:10px;color:{"#4CAF50" if idx < 4 else "#999"};">'
+                            f'写真{idx+1}{"　✅X投稿対象" if idx < 4 else "　（LP用）"}</div>',
+                            unsafe_allow_html=True,
+                        )
+                st.info(f"全{len(all_image_urls)}枚 ／ X投稿: 先頭4枚まで")
             else:
                 st.warning("画像URLが設定されていません")
 
