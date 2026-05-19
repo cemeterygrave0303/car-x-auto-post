@@ -19,6 +19,7 @@ from sheets_client import SheetsClient, _col_index_to_letter, _build_column_map
 from post_generator import generate_post, validate_post
 from x_client import XClient
 from image_client import upload_images_batch
+from pr_sheets_client import PRSheetsClient
 
 # ─────────────────────────────────────────────
 # ページ設定
@@ -40,6 +41,10 @@ if "headers" not in st.session_state:
     st.session_state.headers = []
 if "col_map" not in st.session_state:
     st.session_state.col_map = {}
+if "pr_client" not in st.session_state:
+    st.session_state.pr_client = None
+if "pr_posts" not in st.session_state:
+    st.session_state.pr_posts = []
 
 
 # ─────────────────────────────────────────────
@@ -73,6 +78,19 @@ def reload_data():
         return True
     except Exception as e:
         st.error(f"スプレッドシートの読み込みに失敗しました: {e}")
+        return False
+
+
+def reload_pr_data():
+    """PR投稿シートを再読み込みしてセッションに格納する"""
+    try:
+        pr = PRSheetsClient()
+        pr.load()
+        st.session_state.pr_client = pr
+        st.session_state.pr_posts = pr.get_all_posts()
+        return True
+    except Exception as e:
+        st.error(f"PR投稿シートの読み込みに失敗しました: {e}")
         return False
 
 
@@ -211,6 +229,7 @@ with st.sidebar:
     if st.button("🔄 データを再読み込み", use_container_width=True):
         with st.spinner("読み込み中..."):
             reload_data()
+            reload_pr_data()
         st.success("更新しました")
 
     st.divider()
@@ -225,6 +244,7 @@ with st.sidebar:
 if st.session_state.df is None:
     with st.spinner("スプレッドシートを読み込んでいます..."):
         reload_data()
+        reload_pr_data()
 
 # ─────────────────────────────────────────────
 # メインタブ
@@ -554,120 +574,208 @@ with tab3:
 # ══════════════════════════════════════════════
 with tab4:
     st.header("PR・告知投稿")
-    st.caption("車両紹介以外のPR・お知らせ・キャンペーン告知などを作成してXに投稿できます")
+    st.caption("スプレッドシートの「PR投稿」シートで管理。有効にした投稿が在庫投稿と交互に自動投稿されます。")
 
-    # ── テンプレート ───────────────────────────────────────
-    PR_TEMPLATES = {
-        "自由入力": "",
-        "新着入庫のお知らせ": (
-            "【新着入庫🚗】\n\n"
-            "新しい車が入庫しました！\n"
-            "詳細はプロフィールのリンクをご覧ください。\n\n"
-            "気になる方はDMください✉️\n\n"
-            "#中古車 #名古屋 #愛知 #車売ります #中古車販売"
-        ),
-        "キャンペーン告知": (
-            "【キャンペーン開催中🎉】\n\n"
-            "（キャンペーン内容をここに入力）\n\n"
-            "詳細はDMにてお問い合わせください！\n\n"
-            "#中古車 #名古屋 #愛知 #車売ります"
-        ),
-        "営業時間・お知らせ": (
-            "【営業時間のご案内🕙】\n\n"
-            "月〜土：10:00〜19:00\n"
-            "日・祝：10:00〜18:00\n\n"
-            "お気軽にご来店・DMください😊\n\n"
-            "#中古車販売 #名古屋 #愛知"
-        ),
-        "在庫一掃・特価のご案内": (
-            "【特価車両のご案内💥】\n\n"
-            "在庫処分のため、お値打ち価格でご提供中！\n"
-            "詳細はDMまたはお電話でお気軽に。\n\n"
-            "#中古車 #名古屋 #愛知 #車売ります #お得"
-        ),
-        "口コミ・お礼": (
-            "【ご成約ありがとうございます🙏】\n\n"
-            "この度はご購入いただきありがとうございました！\n"
-            "またのご利用をお待ちしております。\n\n"
-            "#中古車 #名古屋 #愛知 #中古車販売"
-        ),
-    }
+    # PR初回ロード
+    if not st.session_state.pr_posts and st.session_state.pr_client is None:
+        with st.spinner("PR投稿シートを読み込み中..."):
+            reload_pr_data()
 
-    template_key = st.selectbox(
-        "テンプレートを選択",
-        list(PR_TEMPLATES.keys()),
-        help="テンプレートを選ぶと投稿文の雛形が入力されます。自由に編集できます。"
+    # ── 操作モード選択 ────────────────────────────────────
+    pr_mode = st.radio(
+        "操作",
+        ["📋 一覧・手動投稿", "➕ 新規登録", "✏️ 編集"],
+        horizontal=True,
+        key="pr_mode",
     )
-
-    pr_text = st.text_area(
-        "投稿文",
-        value=PR_TEMPLATES[template_key],
-        height=250,
-        placeholder="投稿文を入力してください（280文字以内）",
-        key="pr_text_area",
-    )
-
-    # 文字数カウント
-    pr_len = len(pr_text)
-    pr_color = "green" if pr_len <= config.MAX_TWEET_LENGTH else "red"
-    st.markdown(
-        f"文字数: <span style='color:{pr_color}; font-weight:bold'>"
-        f"{pr_len} / 280</span>",
-        unsafe_allow_html=True,
-    )
-
-    if pr_len > config.MAX_TWEET_LENGTH:
-        st.error("投稿文が280文字を超えています。短くしてください。")
 
     st.divider()
 
-    # ── 画像添付（任意）──────────────────────────────────
-    st.subheader("📷 画像添付（任意・最大4枚）")
-    pr_uploaded, _ = render_photo_uploader("pr")
+    # ════════════════════════════
+    # PR一覧・手動投稿
+    # ════════════════════════════
+    if pr_mode == "📋 一覧・手動投稿":
+        posts = st.session_state.pr_posts
 
-    st.divider()
-
-    # ── 投稿ボタン ────────────────────────────────────────
-    pr_btn_label = "📝 DRY RUN（プレビューのみ）" if dry_run else "🚀 Xに投稿する"
-    pr_btn_type  = "secondary" if dry_run else "primary"
-
-    if not dry_run:
-        st.warning("⚠️ 実際にXへ投稿されます。サイドバーの DRY RUN を ON にすると確認のみになります。")
-
-    if st.button(pr_btn_label, use_container_width=True, type=pr_btn_type, key="pr_post_btn"):
-        if not pr_text.strip():
-            st.error("投稿文を入力してください。")
-        elif pr_len > config.MAX_TWEET_LENGTH:
-            st.error("投稿文が280文字を超えています。")
-        elif dry_run:
-            st.success("【DRY RUN】投稿文の確認が完了しました。")
-            st.text_area("確認用プレビュー", value=pr_text, height=200, disabled=True)
+        if not posts:
+            st.info("PR投稿がまだ登録されていません。「➕ 新規登録」から追加してください。")
         else:
-            # 画像アップロード（選択されていれば）
-            pr_image_urls: list[str] = []
-            pr_files = [f for f in pr_uploaded if f is not None]
-            if pr_files:
-                with st.spinner(f"📤 画像を アップロード中... ({len(pr_files)}枚)"):
-                    try:
-                        uploaded_urls = upload_images_batch(
-                            [(f.read(), f.name, f.type or "image/jpeg") for f in pr_files]
-                        )
-                        pr_image_urls = [u for u in uploaded_urls if u]
-                    except Exception as e:
-                        st.error(f"画像アップロードエラー: {e}")
+            for p in posts:
+                active_flag = str(p.get("有効", "")).strip()
+                is_active = active_flag in {"true", "TRUE", "True", "1", "有効", "○", "✓", "yes", "YES"}
+                badge = "🟢 自動投稿ON" if is_active else "⚫ 自動投稿OFF"
+                last = p.get("最終投稿日時", "") or "未投稿"
+                count = p.get("投稿回数", "0") or "0"
 
-            with st.spinner("Xに投稿中..."):
-                x = XClient()
-                tweet_id = x.post_tweet(
-                    pr_text,
-                    image_urls=pr_image_urls if pr_image_urls else None,
-                )
+                with st.expander(f"{badge}｜{p.get('タイトル', '（タイトルなし）')}　投稿{count}回 / 最終:{last}"):
+                    st.text_area("投稿文", value=p.get("投稿文", ""), height=150,
+                                 disabled=True, key=f"pr_view_{p['_row_num']}")
+                    imgs = [p.get(f"写真{i}", "") for i in range(1, 5) if p.get(f"写真{i}", "")]
+                    if imgs:
+                        st.caption(f"添付画像: {len(imgs)}枚")
 
-            if tweet_id:
-                st.success(f"✅ 投稿成功！ Tweet ID: {tweet_id}")
-                st.balloons()
+                    # 手動投稿ボタン
+                    post_text_pr = p.get("投稿文", "").strip()
+                    pr_valid = bool(post_text_pr) and len(post_text_pr) <= config.MAX_TWEET_LENGTH
+                    btn_lbl = "📝 DRY RUN" if dry_run else "🚀 Xに投稿する"
+                    if st.button(btn_lbl, key=f"pr_post_{p['_row_num']}", disabled=not pr_valid):
+                        if dry_run:
+                            st.success("【DRY RUN】投稿文の確認が完了しました。")
+                        else:
+                            with st.spinner("Xに投稿中..."):
+                                x = XClient()
+                                tweet_id = x.post_tweet(
+                                    post_text_pr,
+                                    image_urls=imgs if imgs else None,
+                                )
+                            if tweet_id:
+                                st.session_state.pr_client.update_posted(p["_row_num"], tweet_id)
+                                reload_pr_data()
+                                st.success(f"✅ 投稿成功！ Tweet ID: {tweet_id}")
+                                st.balloons()
+                            else:
+                                st.error("❌ 投稿に失敗しました。")
+
+    # ════════════════════════════
+    # PR新規登録
+    # ════════════════════════════
+    elif pr_mode == "➕ 新規登録":
+        st.subheader("PR投稿を新規登録")
+
+        # テンプレート選択
+        PR_TEMPLATES = {
+            "自由入力": "",
+            "新着入庫のお知らせ": "【新着入庫🚗】\n\n新しい車が入庫しました！\n詳細はプロフィールのリンクをご覧ください。\n\n気になる方はDMください✉️\n\n#中古車 #名古屋 #愛知 #車売ります #中古車販売",
+            "キャンペーン告知":   "【キャンペーン開催中🎉】\n\n（キャンペーン内容をここに入力）\n\n詳細はDMにてお問い合わせください！\n\n#中古車 #名古屋 #愛知 #車売ります",
+            "営業時間・お知らせ": "【営業時間のご案内🕙】\n\n月〜土：10:00〜19:00\n日・祝：10:00〜18:00\n\nお気軽にご来店・DMください😊\n\n#中古車販売 #名古屋 #愛知",
+            "在庫一掃・特価":     "【特価車両のご案内💥】\n\n在庫処分のため、お値打ち価格でご提供中！\n詳細はDMまたはお電話でお気軽に。\n\n#中古車 #名古屋 #愛知 #車売ります",
+            "ご成約・お礼":       "【ご成約ありがとうございます🙏】\n\nこの度はご購入いただきありがとうございました！\nまたのご利用をお待ちしております。\n\n#中古車 #名古屋 #愛知 #中古車販売",
+        }
+        tpl_key = st.selectbox("テンプレート", list(PR_TEMPLATES.keys()), key="pr_reg_tpl")
+
+        with st.form("pr_register_form"):
+            pr_title = st.text_input("タイトル（管理用）*", placeholder="例：GWキャンペーン告知")
+            pr_body  = st.text_area("投稿文 *", value=PR_TEMPLATES[tpl_key],
+                                    height=220, placeholder="280文字以内で入力してください")
+            pr_active = st.checkbox("自動投稿に含める（有効）", value=True,
+                                    help="チェックONで在庫投稿と交互に自動投稿されます")
+            pr_reg_btn = st.form_submit_button("✅ 登録する", use_container_width=True, type="primary")
+
+        # 写真アップロード（フォーム外）
+        st.subheader("📷 写真（任意・最大4枚）")
+        pr_reg_uploaded, _ = render_photo_uploader("pr_reg")
+
+        if pr_reg_btn:
+            if not pr_title.strip():
+                st.error("タイトルは必須です")
+            elif not pr_body.strip():
+                st.error("投稿文は必須です")
+            elif len(pr_body) > config.MAX_TWEET_LENGTH:
+                st.error(f"投稿文が{len(pr_body)}文字です。280文字以内にしてください。")
             else:
-                st.error("❌ 投稿に失敗しました。ログを確認してください。")
+                photo_urls = ["", "", "", ""]
+                files_to_up = [f for f in pr_reg_uploaded if f is not None]
+                if files_to_up:
+                    with st.spinner("📤 写真をアップロード中..."):
+                        try:
+                            up_urls = upload_images_batch(
+                                [(f.read(), f.name, f.type or "image/jpeg") for f in files_to_up]
+                            )
+                            for i, url in enumerate(up_urls):
+                                if i < 4:
+                                    photo_urls[i] = url or ""
+                        except Exception as e:
+                            st.error(f"写真アップロードエラー: {e}")
+
+                pr_data = {
+                    "タイトル": pr_title,
+                    "投稿文":   pr_body,
+                    "写真1": photo_urls[0], "写真2": photo_urls[1],
+                    "写真3": photo_urls[2], "写真4": photo_urls[3],
+                    "有効":   "TRUE" if pr_active else "FALSE",
+                    "最終投稿日時": "", "投稿回数": "0", "X投稿ID": "",
+                }
+                try:
+                    with st.spinner("スプレッドシートに登録中..."):
+                        st.session_state.pr_client.add_post(pr_data)
+                        reload_pr_data()
+                    st.success(f"✅「{pr_title}」を登録しました！")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"登録エラー: {e}")
+
+    # ════════════════════════════
+    # PR編集
+    # ════════════════════════════
+    else:  # ✏️ 編集
+        posts = st.session_state.pr_posts
+        if not posts:
+            st.info("PR投稿がまだ登録されていません。")
+        else:
+            pr_options = [
+                f"{p.get('タイトル', '（タイトルなし）')}（行{p['_row_num']}）"
+                for p in posts
+            ]
+            pr_sel_idx = st.selectbox("編集するPR投稿を選択", range(len(pr_options)),
+                                      format_func=lambda i: pr_options[i])
+            sel_pr = posts[pr_sel_idx]
+            pr_row_num = sel_pr["_row_num"]
+
+            st.info(f"💾 保存先：PR投稿シート **{pr_row_num}行目**")
+
+            with st.form("pr_edit_form"):
+                pr_edit_title  = st.text_input("タイトル（管理用）", value=sel_pr.get("タイトル", ""))
+                pr_edit_body   = st.text_area("投稿文", value=sel_pr.get("投稿文", ""), height=220)
+                pr_edit_active = st.checkbox(
+                    "自動投稿に含める（有効）",
+                    value=str(sel_pr.get("有効", "")).strip() in
+                          {"true", "TRUE", "True", "1", "有効", "○", "✓", "yes", "YES"},
+                )
+                pr_edit_btn = st.form_submit_button("💾 保存する", use_container_width=True, type="primary")
+
+            # 写真編集（フォーム外）
+            st.subheader("📷 写真の変更")
+            pr_cur_urls = [sel_pr.get(f"写真{i}", "") for i in range(1, 5)]
+            pr_edit_uploaded, pr_existing_urls = render_photo_uploader("pr_edit", pr_cur_urls)
+
+            if pr_edit_btn:
+                if not pr_edit_title.strip():
+                    st.error("タイトルは必須です")
+                elif len(pr_edit_body) > config.MAX_TWEET_LENGTH:
+                    st.error(f"投稿文が{len(pr_edit_body)}文字です。280文字以内にしてください。")
+                else:
+                    # 写真処理
+                    photo_urls = list(pr_existing_urls[:4]) + [""] * (4 - len(pr_existing_urls))
+                    files_to_up = [(i, f) for i, f in enumerate(pr_edit_uploaded) if f is not None]
+                    if files_to_up:
+                        with st.spinner("📤 写真をアップロード中..."):
+                            batch = []
+                            for _, uf in files_to_up:
+                                uf.seek(0)
+                                batch.append((uf.read(), uf.name, uf.type or "image/jpeg"))
+                            try:
+                                new_urls = upload_images_batch(batch)
+                                for (slot_idx, _), new_url in zip(files_to_up, new_urls):
+                                    if new_url:
+                                        photo_urls[slot_idx] = new_url
+                                st.success(f"✅ 写真 {len([u for u in new_urls if u])} 枚をアップロードしました")
+                            except Exception as e:
+                                st.error(f"写真アップロードエラー: {e}")
+
+                    pr_update_data = {
+                        "タイトル": pr_edit_title,
+                        "投稿文":   pr_edit_body,
+                        "写真1": photo_urls[0], "写真2": photo_urls[1],
+                        "写真3": photo_urls[2], "写真4": photo_urls[3],
+                        "有効":   "TRUE" if pr_edit_active else "FALSE",
+                    }
+                    try:
+                        with st.spinner("保存中..."):
+                            st.session_state.pr_client.update_post(pr_row_num, pr_update_data)
+                            reload_pr_data()
+                        st.success(f"✅「{pr_edit_title}」（行{pr_row_num}）を保存しました")
+                    except Exception as e:
+                        st.error(f"保存エラー: {e}")
 
 
 # ══════════════════════════════════════════════
