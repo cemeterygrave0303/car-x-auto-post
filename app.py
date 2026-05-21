@@ -317,6 +317,54 @@ with tab1:
         )
         st.caption(f"表示: {len(display_df)} 件")
 
+        # ── LP公開一覧 ──────────────────────────────────────────────
+        st.divider()
+        st.subheader("🌐 LP公開一覧")
+
+        lp_col = col_map.get("lp_url")
+        maker_col  = st.session_state.headers[col_map["maker"]]    if "maker"    in col_map else None
+        name_col   = st.session_state.headers[col_map["car_name"]] if "car_name" in col_map else None
+        price_col  = st.session_state.headers[col_map["price"]]    if "price"    in col_map else None
+        img1_col   = st.session_state.headers[col_map["image_1"]]  if "image_1"  in col_map else None
+
+        if lp_col is None:
+            st.info("スプレッドシートに「LP_URL」列を追加すると、ここにLP一覧が表示されます。")
+        else:
+            lp_hdr = st.session_state.headers[lp_col]
+            lp_records = df.to_dict("records")
+            lp_items = [
+                r for r in lp_records
+                if str(r.get(lp_hdr, "")).strip().startswith("http")
+            ]
+
+            if not lp_items:
+                st.info("まだLPが公開されていません。「✏️ 車両編集」→「LP生成・公開」から作成できます。")
+            else:
+                st.caption(f"公開中: {len(lp_items)} 件")
+                # 3列グリッド表示
+                grid_cols = st.columns(3)
+                for idx, r in enumerate(lp_items):
+                    lp_url_val  = str(r.get(lp_hdr, "")).strip()
+                    car_maker   = str(r.get(maker_col, ""))  if maker_col  else ""
+                    car_name_v  = str(r.get(name_col,  ""))  if name_col   else ""
+                    car_price   = str(r.get(price_col,  "")) if price_col  else ""
+                    thumb_url   = str(r.get(img1_col,   "")) if img1_col   else ""
+
+                    with grid_cols[idx % 3]:
+                        # サムネイル
+                        if thumb_url:
+                            st.markdown(
+                                f'<a href="{lp_url_val}" target="_blank">'
+                                f'<img src="{thumb_url}" style="width:100%;border-radius:8px;'
+                                f'aspect-ratio:4/3;object-fit:cover;" /></a>',
+                                unsafe_allow_html=True,
+                            )
+                        st.markdown(
+                            f"**{car_maker} {car_name_v}**  \n"
+                            f"{car_price}  \n"
+                            f"[🔗 LPを開く]({lp_url_val})",
+                        )
+
 
 # ══════════════════════════════════════════════
 # タブ2: 車両登録
@@ -470,6 +518,28 @@ with tab3:
         _s_maker = str(selected_row.get(display_name("maker"), "")).strip()
         _s_name  = str(selected_row.get(display_name("car_name"), "")).strip()
         st.info(f"💾 保存先：スプレッドシート **{row_num}行目** ／ {_s_maker} {_s_name}")
+
+        # ── LP URL 常時表示 ──────────────────────────────────────────
+        _current_lp = str(selected_row.get(display_name("lp_url"), "")).strip()
+        if _current_lp:
+            st.markdown(
+                f"""
+                <div style="background:#f0fdf4;border:1.5px solid #22c55e;border-radius:10px;
+                            padding:12px 16px;margin:4px 0 12px;">
+                  <span style="font-size:0.85rem;color:#166534;font-weight:600;">🌐 公開中のLP</span><br>
+                  <a href="{_current_lp}" target="_blank"
+                     style="font-size:0.95rem;color:#15803d;word-break:break-all;">{_current_lp}</a>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="background:#f9f9f9;border:1.5px solid #ddd;border-radius:10px;'
+                'padding:10px 16px;margin:4px 0 12px;font-size:0.85rem;color:#999;">'
+                '🌐 LP未公開 ─ 下部の「LP生成・公開」から作成できます</div>',
+                unsafe_allow_html=True,
+            )
 
         st.divider()
 
