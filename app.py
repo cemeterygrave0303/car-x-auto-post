@@ -20,6 +20,8 @@ from post_generator import generate_post, validate_post
 from x_client import XClient
 from image_client import upload_images_batch
 from pr_sheets_client import PRSheetsClient
+from lp_generator import generate_lp_html, get_lp_url
+from ftp_client import upload_lp
 
 # ─────────────────────────────────────────────
 # ページ設定
@@ -506,6 +508,14 @@ with tab3:
                 height=80,
             )
 
+            review = st.text_area(
+                "⭐ お客様の声（販売後に入力）",
+                value=selected_row.get(display_name("review"), ""),
+                placeholder="例: 内外装が綺麗でとても満足しています。スタッフの対応も親切でした。（匿名・30代男性）",
+                height=80,
+                help="入力後「LP生成・公開」を押すとLPに反映されます",
+            )
+
             # 投稿済みリセット
             reset_posted = st.checkbox("投稿済みフラグをリセットする（再投稿したい場合）", value=False)
 
@@ -556,6 +566,7 @@ with tab3:
                 "inspection": inspection, "repair_history": repair,
                 "chassis_number": chassis_number, "equipment": equipment,
                 "plus_points": plus_points, "minus_points": minus_points,
+                "review": review,
                 **{f"image_{i+1}": photo_urls[i] for i in range(10)},
             }
             if reset_posted:
@@ -573,6 +584,57 @@ with tab3:
                 )
             except Exception as e:
                 st.error(f"保存エラー: {e}")
+
+        # ── LP生成・公開セクション ────────────────────────────────────
+        st.divider()
+        st.subheader("🌐 LP生成・公開")
+
+        # 現在保存されているLP URLを取得
+        current_lp_url = selected_row.get(display_name("lp_url"), "")
+        if current_lp_url:
+            st.info(f"📄 現在のLP URL: [{current_lp_url}]({current_lp_url})")
+            lp_btn_label = "🔄 LPを更新・再公開"
+        else:
+            st.caption("※ LP URLはスプレッドシートの「LP_URL」列に保存されます")
+            lp_btn_label = "🌐 LPを生成して公開する"
+
+        col_lp1, col_lp2 = st.columns([2, 1])
+        with col_lp1:
+            if st.button(lp_btn_label, use_container_width=True, type="primary",
+                         key="lp_generate_btn"):
+                # 最新の車両データをセッションから取得して生成
+                try:
+                    reload_data()
+                    fresh_records = st.session_state.df.to_dict("records")
+                    # row_num は ヘッダー=1、データ=2〜 なので -2 でインデックスに変換
+                    fresh_row_data = fresh_records[row_num - 2] if (row_num - 2) < len(fresh_records) else {}
+
+                    # 内部キー形式に変換
+                    fresh_car = {}
+                    for key, idx in st.session_state.col_map.items():
+                        hdr = st.session_state.headers[idx] if idx < len(st.session_state.headers) else ""
+                        fresh_car[key] = fresh_row_data.get(hdr, "")
+
+                    with st.spinner("📝 HTMLを生成中..."):
+                        html_content = generate_lp_html(fresh_car)
+
+                    with st.spinner("📤 FTPアップロード中..."):
+                        new_lp_url = upload_lp(fresh_car, html_content)
+
+                    # スプレッドシートにLP URLを保存
+                    write_row_to_sheet(row_num, {"lp_url": new_lp_url})
+                    reload_data()
+
+                    st.success(f"✅ LP公開完了！")
+                    st.markdown(f"### 🔗 [{new_lp_url}]({new_lp_url})")
+                    st.caption("このURLをSNSや名刺・チラシに掲載できます")
+
+                except Exception as e:
+                    st.error(f"❌ LP生成・公開エラー: {e}")
+
+        with col_lp2:
+            if current_lp_url:
+                st.link_button("🔗 LPを確認", current_lp_url, use_container_width=True)
 
 
 # ══════════════════════════════════════════════

@@ -111,6 +111,8 @@ COLUMN_ALIASES = {
     "image_8":    ["写真８",   "写真8",   "photo8",  "image8",  "画像8",  "画像８",  "写真（8）"],
     "image_9":    ["写真９",   "写真9",   "photo9",  "image9",  "画像9",  "画像９",  "写真（9）"],
     "image_10":   ["写真１０", "写真10",  "photo10", "image10", "画像10", "画像１０","写真（10）"],
+    "review": ["お客様の声", "review", "Review", "口コミ", "レビュー", "購入者の声"],
+    "lp_url": ["LP_URL", "lp_url", "LPURL", "LP", "ページURL", "紹介ページ"],
     "posted": ["投稿済み", "posted", "Posted", "投稿フラグ", "X投稿済み"],
     "last_posted_at": ["最終投稿日時", "last_posted_at", "LastPostedAt", "投稿日時", "投稿日"],
     "post_count": ["投稿回数", "post_count", "PostCount", "投稿数"],

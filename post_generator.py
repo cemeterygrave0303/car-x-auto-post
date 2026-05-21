@@ -194,9 +194,8 @@ def _build_points_block(plus_raw: Any, minus_raw: Any, max_each: int) -> str:
 def generate_post(car: dict[str, Any]) -> str:
     """
     車両情報辞書から投稿文を生成する。
-    毎回異なるヘッダー・CTA・オープニングを使い、バリエーションのある投稿文を生成する。
-    280文字を超える場合は各テキストを段階的に短縮する。
-    最終的に280文字以内であることを保証する。
+    LP URLが設定されている場合は投稿文末尾に追加する。
+    TwitterはURLを約23文字換算するため、実効文字数で280字以内に収める。
     """
     maker      = str(car.get("maker", "")).strip()
     car_name   = str(car.get("car_name", "")).strip()
@@ -207,8 +206,20 @@ def generate_post(car: dict[str, Any]) -> str:
     repair     = _format_repair_history(car.get("repair_history"))
     plus_raw   = str(car.get("plus_points", "") or car.get("appeal", "") or "").strip()
     minus_raw  = str(car.get("minus_points", "")).strip()
+    lp_url     = str(car.get("lp_url", "")).strip()
 
     car_title = f"{maker} {car_name}".strip() if maker else car_name
+
+    # LP URLの行（設定されている場合のみ）
+    # Twitter はURLを約23文字に短縮するため実効文字数で計算
+    TWITTER_URL_LEN = 23
+    if lp_url:
+        lp_line = f"\n詳細はこちら👇\n{lp_url}"
+        # 実効文字数の調整値: 実際URL文字数 - Twitter換算23文字
+        lp_adjust = len(lp_url) - TWITTER_URL_LEN
+    else:
+        lp_line    = ""
+        lp_adjust  = 0
 
     # バリエーション選択（車両・時刻ベースのシード）
     seed    = _get_variation_seed(car)
@@ -231,6 +242,10 @@ def generate_post(car: dict[str, Any]) -> str:
         lines.append(f"総額：{price}\n")
         return "".join(lines)
 
+    def _effective_len(body: str) -> int:
+        """TwitterのURL短縮を考慮した実効文字数を返す"""
+        return len(body) - lp_adjust
+
     # プラス・マイナスの文字数を段階的に短縮して280字以内に収める
     for hashtags in HASHTAG_SETS:
         for inc_insp, inc_rep in [(True, True), (True, False), (False, False)]:
@@ -239,14 +254,14 @@ def generate_post(car: dict[str, Any]) -> str:
                 points_block = _build_points_block(plus_raw, minus_raw, max_each)
 
                 if points_block:
-                    body = base + f"\n{points_block}\n\n{cta}\n\n{hashtags}"
+                    body = base + f"\n{points_block}{lp_line}\n\n{cta}\n\n{hashtags}"
                 else:
-                    body = base + f"\n{cta}\n\n{hashtags}"
+                    body = base + f"{lp_line}\n\n{cta}\n\n{hashtags}"
 
-                if len(body) <= config.MAX_TWEET_LENGTH:
+                if _effective_len(body) <= config.MAX_TWEET_LENGTH:
                     logger.debug(
-                        "投稿文生成完了: %d文字 header=%s cta=%s",
-                        len(body), header, cta
+                        "投稿文生成完了: %d文字(実効) lp=%s header=%s",
+                        _effective_len(body), bool(lp_url), header,
                     )
                     return body
 
@@ -255,10 +270,10 @@ def generate_post(car: dict[str, Any]) -> str:
         f"{header}\n"
         f"{car_title} {year} {mileage}\n"
         f"総額：{price}\n"
-        f"{cta}\n"
+        f"{lp_line}\n{cta}\n"
         f"#中古車 #名古屋 #愛知"
     )
-    return fallback[:config.MAX_TWEET_LENGTH]
+    return fallback[:config.MAX_TWEET_LENGTH + lp_adjust]
 
 
 def validate_post(text: str) -> bool:
