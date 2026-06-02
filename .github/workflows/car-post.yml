@@ -1,11 +1,12 @@
 name: 中古車 X 自動投稿
 
 on:
-  schedule:
-    # 毎日 8:30 JST = UTC 23:30 (前日)
-    - cron: "30 23 * * *"
-    # 毎日 20:30 JST = UTC 11:30
-    - cron: "30 11 * * *"
+  # cron-job.org から workflow_dispatch でトリガーする（GitHub Actions内蔵cronは精度が低いため）
+  # 毎日 8:30 JST / 20:30 JST に cron-job.org から POST:
+  #   URL: https://api.github.com/repos/cemeterygrave0303/car-x-auto-post/dispatches
+  #   Body: {"event_type":"scheduled-post"}
+  repository_dispatch:
+    types: [scheduled-post]
   # 手動実行も可能
   workflow_dispatch:
     inputs:
