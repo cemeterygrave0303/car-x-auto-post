@@ -312,6 +312,10 @@ def generate_lp_html(car: dict[str, Any]) -> str:
 <footer>
   <p>{SHOP_NAME} &copy; {SHOP_NAME_SUB}</p>
   <p style="margin-top:6px;"><a href="{X_PROFILE_URL}" target="_blank" rel="noopener">𝕏 @kurumayanagoya</a></p>
+  <p style="margin-top:14px; border-top:1px solid #333; padding-top:14px; line-height:2;">
+    運営会社：合同会社ワーケーションスタイル（本社 名古屋市西区）<br>
+    古物商許可番号：愛知県公安委員会　第541042308500号
+  </p>
 </footer>
 
 <!-- ライトボックス -->
