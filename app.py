@@ -402,6 +402,8 @@ with tab1:
                         ids_str  = str(r.get(xid_hdr, "")).strip()
                         metrics  = x.get_tweets_metrics(ids_str)
                         pv_result[label] = {
+                            "_row_num": i + 2,  # スプレッドシートの行番号（1-indexed）
+                            "_impression_raw": metrics["impression_count"],
                             "投稿回数": count_v,
                             "インプレッション": f"{metrics['impression_count']:,}",
                             "いいね": metrics["like_count"],
@@ -416,28 +418,65 @@ with tab1:
 
             # PVデータが取得済みなら表示
             if st.session_state.pv_data:
-                pv_df = pd.DataFrame.from_dict(
-                    st.session_state.pv_data, orient="index"
-                ).reset_index().rename(columns={"index": "車両名"})
+                pv_items = list(st.session_state.pv_data.items())
+                # インプレッション順にソート
+                pv_items.sort(key=lambda x: x[1].get("_impression_raw", 0), reverse=True)
+                total_pv = len(pv_items)
 
-                # インプレッション順にソート（カンマ除去して数値比較）
-                pv_df["_sort"] = pv_df["インプレッション"].str.replace(",", "").astype(int)
-                pv_df = pv_df.sort_values("_sort", ascending=False).drop(columns="_sort")
+                # 優先度ランクを計算（4段階）
+                def _pv_rank(idx: int, total: int) -> int:
+                    ratio = idx / max(total, 1)
+                    if ratio < 0.25: return 1
+                    elif ratio < 0.50: return 2
+                    elif ratio < 0.75: return 3
+                    else: return 4
 
-                st.dataframe(
-                    pv_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "車両名":         st.column_config.TextColumn("車両名", width="medium"),
-                        "投稿回数":       st.column_config.TextColumn("投稿回数", width="small"),
-                        "インプレッション": st.column_config.TextColumn("👁 PV（累計）", width="small"),
-                        "いいね":         st.column_config.NumberColumn("❤️ いいね", width="small"),
-                        "RT":            st.column_config.NumberColumn("🔁 RT", width="small"),
-                        "返信":          st.column_config.NumberColumn("💬 返信", width="small"),
-                    },
-                )
+                rank_labels = {1: "🥇 優先度1（2倍速）", 2: "🥈 優先度2（1.5倍速）",
+                               3: "🥉 優先度3（通常）",  4: "⬇️ 優先度4（低頻度）"}
+
+                # 表示用DataFrame
+                rows = []
+                for idx, (label, m) in enumerate(pv_items):
+                    rank = _pv_rank(idx, total_pv)
+                    rows.append({
+                        "車両名": label,
+                        "投稿回数": m.get("投稿回数", "0"),
+                        "👁 PV（累計）": m.get("インプレッション", "0"),
+                        "❤️ いいね": m.get("いいね", 0),
+                        "🔁 RT": m.get("RT", 0),
+                        "💬 返信": m.get("返信", 0),
+                        "📊 推奨優先度": rank_labels[rank],
+                    })
+
+                pv_df = pd.DataFrame(rows)
+                st.dataframe(pv_df, use_container_width=True, hide_index=True)
                 st.caption("※ PVデータは「PVデータを取得・更新」ボタンを押した時点の値です")
+
+                st.divider()
+                st.markdown("#### 📈 PV連動で投稿頻度を自動設定")
+                st.caption(
+                    "PV上位25%→優先度1（2倍速）、25〜50%→優先度2、50〜75%→優先度3、下位25%→優先度4（低頻度）"
+                )
+
+                if "priority" not in st.session_state.get("col_map", {}):
+                    st.warning("スプレッドシートに「優先順位」列がありません。列を追加してから実行してください。")
+                else:
+                    if st.button("✅ PV連動で優先度をスプレッドシートに反映する", type="primary"):
+                        sheets = st.session_state.sheets
+                        ok_count = 0
+                        with st.spinner("優先度を更新中..."):
+                            for idx, (label, m) in enumerate(pv_items):
+                                row_num = m.get("_row_num")
+                                if not row_num:
+                                    continue
+                                rank = _pv_rank(idx, total_pv)
+                                try:
+                                    sheets.update_priority(row_num, rank)
+                                    ok_count += 1
+                                except Exception as e:
+                                    st.warning(f"{label}: 更新失敗 ({e})")
+                        st.success(f"✅ {ok_count} 件の優先度を更新しました！次回投稿からPV上位車両が優先されます。")
+                        reload_data()
 
 
 # ══════════════════════════════════════════════

@@ -78,6 +78,38 @@ def _parse_last_posted(car: dict[str, Any]) -> datetime:
     return datetime.min
 
 
+def _parse_priority(car: dict[str, Any]) -> int:
+    """優先度を整数で返す（空欄は3=通常、1=最高優先）"""
+    raw = str(car.get("priority", "")).strip()
+    if not raw:
+        return 3
+    try:
+        return max(1, min(5, int(raw)))
+    except ValueError:
+        return 3
+
+
+def _effective_last_posted(car: dict[str, Any]) -> tuple:
+    """
+    優先度を考慮したソートキーを返す。
+    優先度が高いほど「より古く投稿した」とみなし、早く再投稿される。
+      優先度1: -48時間オフセット（2倍速で再投稿）
+      優先度2: -24時間オフセット
+      優先度3:   0時間オフセット（通常）
+      優先度4: +24時間オフセット
+      優先度5: +48時間オフセット（半分の頻度）
+    """
+    from datetime import timedelta
+    offsets = {1: -48, 2: -24, 3: 0, 4: 24, 5: 48}
+    priority = _parse_priority(car)
+    base = _parse_last_posted(car)
+    offset_h = offsets.get(priority, 0)
+    if base == datetime.min:
+        # 未投稿は priority をサブキーにして優先度順
+        return (datetime.min, priority)
+    return (base + timedelta(hours=offset_h), priority)
+
+
 class SheetsClient:
     def __init__(self) -> None:
         self._gc: Optional[gspread.Client] = None
@@ -140,8 +172,8 @@ class SheetsClient:
         if not candidates:
             return None
 
-        # 最終投稿日時が最も古い車両を選ぶ（未投稿 = 最優先）
-        candidates.sort(key=lambda item: _parse_last_posted(item[1]))
+        # 優先度＋最終投稿日時でソート（優先度高 × 古い順 = 最優先）
+        candidates.sort(key=lambda item: _effective_last_posted(item[1]))
 
         row_num, car = candidates[0]
         logger.info(
@@ -196,6 +228,16 @@ class SheetsClient:
             logger.info("スプレッドシート更新完了: 行%d tweet_id=%s", row_num, tweet_id)
         else:
             logger.warning("更新対象のカラムが見つかりませんでした（col_map=%s）", self._col_map)
+
+    def update_priority(self, row_num: int, priority: int) -> None:
+        """指定行の優先度を更新する"""
+        if "priority" not in self._col_map:
+            logger.warning("優先度カラムがスプレッドシートに存在しません")
+            return
+        col_letter = _col_index_to_letter(self._col_map["priority"])
+        cell = f"{col_letter}{row_num}"
+        self._sheet.update(cell, [[priority]], value_input_option="USER_ENTERED")
+        logger.info("優先度更新: 行%d → priority=%d", row_num, priority)
 
 
 def _col_index_to_letter(index: int) -> str:
