@@ -47,6 +47,8 @@ if "pr_client" not in st.session_state:
     st.session_state.pr_client = None
 if "pr_posts" not in st.session_state:
     st.session_state.pr_posts = []
+if "pv_data" not in st.session_state:
+    st.session_state.pv_data = {}  # {車名: metrics_dict}
 
 
 # ─────────────────────────────────────────────
@@ -364,6 +366,78 @@ with tab1:
                             f"{car_price}  \n"
                             f"[🔗 LPを開く]({lp_url_val})",
                         )
+
+        # ── X PV（インプレッション）一覧 ─────────────────────────────
+        st.divider()
+        st.subheader("📊 X投稿 累計PV（インプレッション）")
+
+        xid_col   = col_map.get("x_post_id")
+        count_col = col_map.get("post_count")
+
+        if xid_col is None:
+            st.info("スプレッドシートに「X投稿ID」列がないためPVを取得できません。")
+        else:
+            st.caption("Xに投稿された各車両のインプレッション・いいね・RTを集計します。")
+
+            if st.button("🔄 PVデータを取得・更新", use_container_width=False):
+                x = XClient()
+                pv_result = {}
+                xid_hdr    = st.session_state.headers[xid_col]
+                maker_hdr  = st.session_state.headers[col_map["maker"]]    if "maker"    in col_map else None
+                name_hdr   = st.session_state.headers[col_map["car_name"]] if "car_name" in col_map else None
+                count_hdr  = st.session_state.headers[count_col]           if count_col is not None else None
+
+                records = df.to_dict("records")
+                target = [r for r in records if str(r.get(xid_hdr, "")).strip()]
+
+                if not target:
+                    st.warning("X投稿IDが記録されている車両がありません。投稿後に再度お試しください。")
+                else:
+                    progress = st.progress(0, text="取得中...")
+                    for i, r in enumerate(target):
+                        maker_v  = str(r.get(maker_hdr, "")) if maker_hdr else ""
+                        name_v   = str(r.get(name_hdr,  "")) if name_hdr  else ""
+                        count_v  = str(r.get(count_hdr, "0")) if count_hdr else "0"
+                        label    = f"{maker_v} {name_v}".strip()
+                        ids_str  = str(r.get(xid_hdr, "")).strip()
+                        metrics  = x.get_tweets_metrics(ids_str)
+                        pv_result[label] = {
+                            "投稿回数": count_v,
+                            "インプレッション": f"{metrics['impression_count']:,}",
+                            "いいね": metrics["like_count"],
+                            "RT": metrics["retweet_count"],
+                            "返信": metrics["reply_count"],
+                        }
+                        progress.progress((i + 1) / len(target), text=f"取得中... {label}")
+
+                    progress.empty()
+                    st.session_state.pv_data = pv_result
+                    st.success(f"✅ {len(pv_result)} 件のPVデータを取得しました")
+
+            # PVデータが取得済みなら表示
+            if st.session_state.pv_data:
+                pv_df = pd.DataFrame.from_dict(
+                    st.session_state.pv_data, orient="index"
+                ).reset_index().rename(columns={"index": "車両名"})
+
+                # インプレッション順にソート（カンマ除去して数値比較）
+                pv_df["_sort"] = pv_df["インプレッション"].str.replace(",", "").astype(int)
+                pv_df = pv_df.sort_values("_sort", ascending=False).drop(columns="_sort")
+
+                st.dataframe(
+                    pv_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "車両名":         st.column_config.TextColumn("車両名", width="medium"),
+                        "投稿回数":       st.column_config.TextColumn("投稿回数", width="small"),
+                        "インプレッション": st.column_config.TextColumn("👁 PV（累計）", width="small"),
+                        "いいね":         st.column_config.NumberColumn("❤️ いいね", width="small"),
+                        "RT":            st.column_config.NumberColumn("🔁 RT", width="small"),
+                        "返信":          st.column_config.NumberColumn("💬 返信", width="small"),
+                    },
+                )
+                st.caption("※ PVデータは「PVデータを取得・更新」ボタンを押した時点の値です")
 
 
 # ══════════════════════════════════════════════

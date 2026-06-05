@@ -258,6 +258,40 @@ class XClient:
             logger.error("X投稿失敗 - 予期せぬエラー: %s", type(e).__name__)
             return None
 
+    def get_tweets_metrics(self, tweet_ids_str: str) -> dict:
+        """
+        カンマ区切りのtweet IDsからメトリクスを取得して合計する。
+        戻り値: {impression_count, like_count, retweet_count, reply_count}
+        """
+        default = {"impression_count": 0, "like_count": 0, "retweet_count": 0, "reply_count": 0}
+        if not tweet_ids_str:
+            return default
+
+        ids = [t.strip() for t in str(tweet_ids_str).split(",") if t.strip()]
+        if not ids:
+            return default
+
+        client = self._get_client()
+        total = default.copy()
+
+        # 100件ずつバッチ処理（API上限）
+        for i in range(0, len(ids), 100):
+            batch = ids[i:i + 100]
+            try:
+                response = client.get_tweets(
+                    ids=batch,
+                    tweet_fields=["public_metrics"],
+                )
+                if response.data:
+                    for tweet in response.data:
+                        if hasattr(tweet, "public_metrics") and tweet.public_metrics:
+                            for key in total:
+                                total[key] += tweet.public_metrics.get(key, 0)
+            except Exception as e:
+                logger.warning("メトリクス取得エラー (batch %d): %s", i, e)
+
+        return total
+
     def verify_credentials(self) -> bool:
         """API認証情報が有効かどうかを確認する"""
         try:

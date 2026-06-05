@@ -170,8 +170,16 @@ class SheetsClient:
 
         # 最終投稿日時
         _cell("last_posted_at", now_str)
-        # X投稿ID（最新の投稿ID）
-        _cell("x_post_id", tweet_id)
+
+        # X投稿ID（全IDをカンマ区切りで蓄積・最新を末尾に追記）
+        if "x_post_id" in self._col_map:
+            current_row = self._all_rows[row_num - 2]
+            idx = self._col_map["x_post_id"]
+            existing = str(current_row[idx]).strip() if idx < len(current_row) else ""
+            existing_ids = [t for t in existing.split(",") if t.strip()]
+            if tweet_id not in existing_ids:
+                existing_ids.append(tweet_id)
+            _cell("x_post_id", ",".join(existing_ids))
 
         # 投稿回数はインクリメント（現在値を読んで+1）
         if "post_count" in self._col_map:
