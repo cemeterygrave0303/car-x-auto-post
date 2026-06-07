@@ -288,6 +288,7 @@ class XClient:
                 response = client.get_tweets(
                     ids=batch,
                     tweet_fields=["public_metrics"],
+                    user_auth=True,  # OAuth 1.0a で認証（Bearer Token ではなく）
                 )
 
                 # エラーレスポンスを確認
