@@ -261,9 +261,16 @@ class XClient:
     def get_tweets_metrics(self, tweet_ids_str: str) -> dict:
         """
         カンマ区切りのtweet IDsからメトリクスを取得して合計する。
-        戻り値: {impression_count, like_count, retweet_count, reply_count}
+        戻り値: {impression_count, like_count, retweet_count, reply_count, errors}
         """
-        default = {"impression_count": 0, "like_count": 0, "retweet_count": 0, "reply_count": 0}
+        default = {
+            "impression_count": 0,
+            "like_count": 0,
+            "retweet_count": 0,
+            "reply_count": 0,
+            "errors": [],
+            "fetched": 0,
+        }
         if not tweet_ids_str:
             return default
 
@@ -282,13 +289,38 @@ class XClient:
                     ids=batch,
                     tweet_fields=["public_metrics"],
                 )
+
+                # エラーレスポンスを確認
+                if hasattr(response, "errors") and response.errors:
+                    for err in response.errors:
+                        total["errors"].append(str(err))
+                        logger.warning("Twitter API エラー: %s", err)
+
                 if response.data:
                     for tweet in response.data:
-                        if hasattr(tweet, "public_metrics") and tweet.public_metrics:
-                            for key in total:
-                                total[key] += tweet.public_metrics.get(key, 0)
+                        total["fetched"] += 1
+                        pm = getattr(tweet, "public_metrics", None)
+                        logger.debug("tweet_id=%s public_metrics=%s", tweet.id, pm)
+                        if pm:
+                            total["impression_count"] += pm.get("impression_count", 0) or 0
+                            total["like_count"]       += pm.get("like_count", 0) or 0
+                            total["retweet_count"]    += pm.get("retweet_count", 0) or 0
+                            total["reply_count"]      += pm.get("reply_count", 0) or 0
+                else:
+                    logger.warning("get_tweets: data が None (batch %d) errors=%s", i, response.errors)
+
+            except tweepy.errors.Forbidden as e:
+                msg = f"403 Forbidden: impression_count の取得にはX API Basic プランが必要です ({e})"
+                total["errors"].append(msg)
+                logger.error(msg)
+            except tweepy.errors.Unauthorized as e:
+                msg = f"401 Unauthorized: 認証エラー ({e})"
+                total["errors"].append(msg)
+                logger.error(msg)
             except Exception as e:
-                logger.warning("メトリクス取得エラー (batch %d): %s", i, e)
+                msg = f"メトリクス取得エラー: {type(e).__name__}: {e}"
+                total["errors"].append(msg)
+                logger.error(msg)
 
         return total
 
