@@ -401,10 +401,7 @@ with tab1:
                         label    = f"{maker_v} {name_v}".strip()
                         ids_str  = str(r.get(xid_hdr, "")).strip()
                         metrics  = x.get_tweets_metrics(ids_str)
-                        # エラーがあれば表示
-                        if metrics.get("errors"):
-                            for err_msg in metrics["errors"]:
-                                st.warning(f"⚠️ {label}: {err_msg}")
+                        # エラーは表示しない（ログのみ）
 
                         pv_result[label] = {
                             "_row_num": i + 2,
