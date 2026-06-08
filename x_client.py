@@ -251,7 +251,12 @@ class XClient:
             return None
 
         except tweepy.errors.TweepyException as e:
-            logger.error("X投稿失敗 - TweepyException: %s", e)
+            err_str = str(e)
+            if "402" in err_str or "Payment Required" in err_str or "credits" in err_str.lower():
+                logger.error("X投稿失敗 - API クレジット不足 (402): %s", e)
+                logger.error("X API の月次クレジットが枯渇しています。月次リセットまで待つか、X API プランのアップグレードを検討してください。")
+            else:
+                logger.error("X投稿失敗 - TweepyException: %s", e)
             return None
 
         except Exception as e:

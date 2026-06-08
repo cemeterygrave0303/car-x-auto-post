@@ -176,6 +176,10 @@ def main() -> int:
         if code == -1:
             logger.info("PR投稿をスキップ → 在庫投稿にフォールバック")
             return post_car(sheets, x)
+        if code != 0:
+            # PR投稿がAPI エラー等で失敗した場合も在庫投稿にフォールバック
+            logger.warning("PR投稿が失敗（code=%d）→ 在庫投稿にフォールバック", code)
+            return post_car(sheets, x)
         return code
 
 
